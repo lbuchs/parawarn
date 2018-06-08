@@ -17,12 +17,12 @@
 
 
 // Status des Moduls
-// 0: wird eingeschaltet
-// 1: ist eingeschaltet
-// 2: wird ausgeschaltet
-// 3: ist ausgeschaltet
+// 0: Status unbekannt
+// 1: wird eingeschaltet
+// 2: ist eingeschaltet
+// 3: wird ausgeschaltet
+// 4: ist ausgeschaltet
 int state = 0;
-bool shutdownPressed = false;
 
 // Intervals
 unsigned long pushInterval = 30000; // Interval, mit dem versucht wird, die Lampe einzuschalten
@@ -49,8 +49,7 @@ char replyStateOff[]  = "LSOF"; // Antwort: Die Lampe ist ausgeschaltet
 int pinLedGreen    = D1; // Grünes LED
 int pinLedRed   = D2; // Rotes LED
 int pinLedBlue = D3; // Blaues LED
-int pinSelfhold = D4; // Selbsthaltung
-int pinBtn = D5; // Button zum ausschalten
+int pinBtn = D0; // Button zum ein-/ausschalten
 
 
 void setup() {
@@ -58,9 +57,7 @@ void setup() {
   pinMode(pinLedGreen, OUTPUT);
   pinMode(pinLedRed, OUTPUT);
   pinMode(pinLedBlue, OUTPUT);
-  pinMode(pinSelfhold, OUTPUT);
   pinMode(pinBtn, INPUT);
-  digitalWrite(pinSelfhold, HIGH);
   Serial.begin(9600);
   ledTest(0);
 }
@@ -68,16 +65,13 @@ void setup() {
 void loop() {
   // ********************************
   // Button lesen (2s Entprellt)
-  // ********************************
-  
+  // ********************************  
   if (digitalRead(pinBtn) == HIGH && lastShutdownPressed + 2000 < millis()) {
-    if (shutdownPressed == false) {
-      shutdownPressed = true;
-      state = 2; // wird ausgeschaltet 
+    if (state == 1 || state == 2) {
+      state = 3; // wird ausgeschaltet 
       
-    } else if (shutdownPressed == true) {
-      shutdownPressed = false;
-      state = 0; // wird wieder eingeschaltet
+    } else {
+      state = 1; // wird eingeschaltet
     }
     
     lastShutdownPressed = millis();
@@ -88,16 +82,17 @@ void loop() {
   // ********************************
   
   while (Serial.available() >= 4) {
-    char buf[4];
+    char buf[5];
     Serial.readBytes(buf, 4);
+    buf[4] = '\0';
     
     // Lampe ein
     if (strcmp(buf, replyStateOn) == 0) {
-      state = 1;
+      state = 2;
 
     // Lampe aus
     } else if (strcmp(buf, replyStateOff) == 0) {
-      state = 3;
+      state = 4;
       lastLampOffInfo = millis();
     }
   }
@@ -107,23 +102,25 @@ void loop() {
   // ********************************
     
   // einschalten
-  if (state == 0) {
+  if (state == 1) {
     if (lastTurnOnSignal == 0 || (lastTurnOnSignal + pushInterval) < millis()) {
       Serial.print(cmdLampSetOn);
       lastTurnOnSignal = millis();
       lastRequStateSignal = millis();
+      lastTurnOffSignal = 0;
     }
 
   // ausschalten
-  } else if (state == 2) {
-    if (lastTurnOnSignal == 0 || (lastTurnOnSignal + pushInterval) < millis()) {
-      Serial.print(cmdLampSetOn);
-      lastTurnOnSignal = millis();
+  } else if (state == 3) {
+    if (lastTurnOffSignal == 0 || (lastTurnOffSignal + pushInterval) < millis()) {
+      Serial.print(cmdLampSetOff);
+      lastTurnOffSignal = millis();
       lastRequStateSignal = millis();
+      lastTurnOnSignal = 0;
     }
 
-  // Ein- und ausgeschaltet: Status abfragen
-  } else if (state == 1 || state == 3) {
+  // unbekannt, Ein- und ausgeschaltet: Status abfragen
+  } else if (state == 2 || state == 4) {
     if (lastRequStateSignal == 0 || (lastRequStateSignal + statusInterval) < millis()) {
       Serial.print(cmdGetLampState);
       lastRequStateSignal = millis();
@@ -134,31 +131,40 @@ void loop() {
   // LEDs ansteuern
   // ********************************
 
-  if (state == 0) { // wird eingeschaltet (blinkt)
+  if (state == 0) { // unbekannt
+    digitalWrite(pinLedBlue, HIGH);
+    digitalWrite(pinLedRed, LOW);
+    digitalWrite(pinLedGreen, LOW);
+    
+  } else if (state == 1) { // wird eingeschaltet (blinkt)
     ledBlinker(pinLedGreen);
     digitalWrite(pinLedRed, LOW);
+    digitalWrite(pinLedBlue, HIGH);
     
-  } else if (state == 2) { // wird ausgeschaltet (blinkt)
-    ledBlinker(pinLedRed);
-    digitalWrite(pinLedGreen, LOW);
-
-  } else if (state == 1) { // Ein
+  } else if (state == 2) { // Ein
     digitalWrite(pinLedGreen, HIGH);
     digitalWrite(pinLedRed, LOW);
+    digitalWrite(pinLedBlue, HIGH);
     
-  }  else if (state == 3) { // Aus
+  } else if (state == 3) { // wird ausgeschaltet (blinkt)
+    ledBlinker(pinLedRed);
+    digitalWrite(pinLedGreen, LOW);
+    digitalWrite(pinLedBlue, HIGH);
+
+  }  else if (state == 4) { // Aus
     digitalWrite(pinLedGreen, LOW);
     digitalWrite(pinLedRed, HIGH);
+    digitalWrite(pinLedBlue, HIGH);
   } 
-
+  
   // ********************************
-  // Modul überwachen
+  // Modul ausschalten
   // ********************************
 
-  // Modul ausschalten wenn Zeit abgelaufen
-  if (shutdownPressed == true && state == 3 && (lastLampOffInfo + offTimeout) < millis()) {
-    digitalWrite(pinSelfhold, LOW);
+  if (state == 4 && (lastLampOffInfo + offTimeout) < millis()) {
+    state = 0;
   }
+  
 }
 
 
@@ -192,12 +198,13 @@ void ledTest(int cnt) {
 bool ledOn = false;
 unsigned long lastChange = 0;
 void ledBlinker(int pin) {
-  if (ledOn == false && lastChange + 500 < millis()) {
+  if (lastChange + 500 < millis()) {
     digitalWrite(pin, ledOn ? LOW : HIGH);
     lastChange = millis(); 
     ledOn = !ledOn;
   }
 }
+
 
 
 

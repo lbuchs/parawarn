@@ -15,14 +15,13 @@
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-// Status des Moduls
-bool stateTurnOn = true;     // Lampe wird eingeschaltet
-bool stateTurnedOn = false;  // Lampe ist aktiv
-bool stateTurnOff = false;   // Lampe wird ausgeschaltet
-bool stateTurnedOff = false; // Lampe ist ausgeschaltet
+// Status der Lampe
+bool lampOn = false;
+bool replyState = false;
 
 // Intervals
-unsigned long statusInterval = 180000; // Interval, in dem im ein- und ausgeschalteten Zustand die Lampe abgefragt wird
+unsigned long sendInterval = 180000;
+unsigned long lastSend = 0;
 
 // Commands
 char cmdLampSetOn[]    = "CLON"; // Anweisung, die Lampe einzuschalten
@@ -34,18 +33,57 @@ char replyStateOn[]   = "LSON"; // Antwort: Die Lampe ist eingeschaltet
 char replyStateOff[]  = "LSOF"; // Antwort: Die Lampe ist ausgeschaltet
 
 // pins
-int pinSelfhold = D1; // Relais
+int pinRelais = D1; // Relais
 
 
 void setup() {
   // Ausgänge Setzen und Selbsthaltung aktivieren
-  pinMode(pinLedOn, OUTPUT);
-  pinMode(pinLedOff, OUTPUT);
-  pinMode(pinSelfhold, OUTPUT);
-  digitalWrite(pinSelfhold, HIGH);
+  pinMode(pinRelais, OUTPUT);
+
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
+  // ********************************
+  // Serielle Daten lesen
+  // ********************************
+  
+  
+  while (Serial.available() >= 4) {
+    char buf[5];
+    Serial.readBytes(buf, 4);
+    buf[4] = '\0';
+    
+    // Lampe ein
+    if (strcmp(buf, cmdLampSetOn) == 0) {
+      lampOn = true;
+      replyState = true;
 
+    // Lampe aus
+    } else if (strcmp(buf, cmdLampSetOff) == 0) {
+      lampOn = false;
+      replyState = true;
+      
+    // Status Abfrage
+    } else if (strcmp(buf, cmdGetLampState) == 0) {
+      lampOn = false;
+      replyState = true;
+    }
+  }
+  
+  // ********************************
+  // Relais setzen
+  // ********************************
+  
+  digitalWrite(pinRelais, lampOn ? HIGH : LOW);
+  
+  
+  // ********************************
+  // Antwort senden
+  // ********************************
+  
+  if (replyState == true && (lastSend == 0 || (lastSend + sendInterval) < millis())) {
+      Serial.print(lampOn ? replyStateOn : replyStateOff);
+      lastSend = millis();
+      replyState = false;
+  }
 }
