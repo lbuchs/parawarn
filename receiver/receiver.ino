@@ -18,10 +18,17 @@
 // Status der Lampe
 bool lampOn = false;
 bool replyState = false;
+bool relaisState = false;
 
 // Intervals
-unsigned long sendInterval = 180000;
+unsigned long sendInterval = 10000; // nur alle 10s senden
+unsigned long lampOffTimeout = 36000000; // 10h
+
+
+// Zeitstempel
 unsigned long lastSend = 0;
+unsigned long lastLampOn = 0;
+unsigned long lastLedBlink = 0;
 
 // Commands
 char cmdLampSetOn[]    = "CLON"; // Anweisung, die Lampe einzuschalten
@@ -33,57 +40,122 @@ char replyStateOn[]   = "LSON"; // Antwort: Die Lampe ist eingeschaltet
 char replyStateOff[]  = "LSOF"; // Antwort: Die Lampe ist ausgeschaltet
 
 // pins
-int pinRelais = D1; // Relais
+int pinRelais = 2; // Relais
+int pinLed = 4; // LED Statusanzeige
+int pinTelemetry = 12; // Telemetrie
+int transmitterStateA = 0; // Sender
+int transmitterStateB = 15; // Sender
 
+
+char buf[5] = {'\0','\0','\0','\0','\0'};
 
 void setup() {
-  // Ausgänge Setzen und Selbsthaltung aktivieren
+  // Ausgänge Setzen 
   pinMode(pinRelais, OUTPUT);
+  pinMode(pinTelemetry, OUTPUT);
+  pinMode(pinLed, OUTPUT);
+  pinMode(transmitterStateA, OUTPUT);
+  pinMode(transmitterStateB, OUTPUT);
+  
+  digitalWrite(pinRelais, LOW);
+  digitalWrite(pinTelemetry, LOW);
+  digitalWrite(transmitterStateA, LOW);  
+  digitalWrite(transmitterStateB, LOW);
+  
+  // Serielle Schnittstelle zu Funkmodul starten  
+  Serial2.begin(9600); 
 
+  // LED Testen
+  ledTest(0);
 }
 
 void loop() {
   // ********************************
   // Serielle Daten lesen
   // ********************************
-  
-  
-  while (Serial.available() >= 4) {
-    char buf[5];
-    Serial.readBytes(buf, 4);
-    buf[4] = '\0';
+
+  // alle seriellen Daten lesen und prüfen
+  if (Serial2.available() > 0) {
+
+    // Array nachrutschen
+    buf[0] = buf[1];
+    buf[1] = buf[2];
+    buf[2] = buf[3];    
+    buf[3] = Serial2.read();
     
     // Lampe ein
     if (strcmp(buf, cmdLampSetOn) == 0) {
       lampOn = true;
       replyState = true;
+      lastSend = 0;
+      lastLampOn = millis();
 
     // Lampe aus
     } else if (strcmp(buf, cmdLampSetOff) == 0) {
       lampOn = false;
       replyState = true;
+      lastSend = 0;
       
     // Status Abfrage
     } else if (strcmp(buf, cmdGetLampState) == 0) {
-      lampOn = false;
-      replyState = true;
+      replyState = true;      
     }
+    
   }
   
   // ********************************
   // Relais setzen
   // ********************************
-  
-  digitalWrite(pinRelais, lampOn ? HIGH : LOW);
-  
+
+  if (lampOn != relaisState) {
+    digitalWrite(pinRelais, lampOn ? HIGH : LOW);
+    digitalWrite(pinTelemetry, lampOn ? HIGH : LOW);    
+    digitalWrite(pinLed, lampOn ? HIGH : LOW);
+    relaisState = lampOn;
+  }
   
   // ********************************
   // Antwort senden
   // ********************************
   
   if (replyState == true && (lastSend == 0 || (lastSend + sendInterval) < millis())) {
-      Serial.print(lampOn ? replyStateOn : replyStateOff);
+      Serial2.print(lampOn ? replyStateOn : replyStateOff);
       lastSend = millis();
       replyState = false;
   }
+
+
+  // ********************************
+  // lampe nach timeout ausschalten
+  // ********************************
+  if (lampOn == true && (lastLampOn + lampOffTimeout) < millis()) {
+      lampOn = false;
+      replyState = true;
+  }
+
+  // ********************************
+  // LED blinken lassen
+  // ********************************
+  if ((lastLedBlink + 10000) < millis()) {
+    digitalWrite(pinLed, relaisState ? LOW : HIGH);
+    delay(150);
+    digitalWrite(pinLed, relaisState ? HIGH : LOW);
+    lastLedBlink = millis();
+  }
+  
+  
 }
+
+void ledTest(int cnt) {
+  digitalWrite(pinLed, HIGH);
+  delay(200);
+  digitalWrite(pinLed, LOW);
+  delay(200);
+
+
+  //rekursion
+  if (cnt < 3) {
+    ledTest(cnt+1);  
+  }
+}
+

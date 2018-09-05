@@ -25,9 +25,9 @@
 int state = 0;
 
 // Intervals
-unsigned long pushInterval = 30000; // Interval, mit dem versucht wird, die Lampe einzuschalten
+unsigned long pushInterval = 20000; // Interval, mit dem versucht wird, die Lampe einzuschalten
 unsigned long statusInterval = 180000; // Interval, in dem im ein- und ausgeschalteten Zustand die Lampe abgefragt wird
-unsigned long offTimeout = 30000; // Zeit bis zum Ausschalten des Moduls, wenn die Lampe abgeschaltet wurde
+unsigned long offTimeout = 40000; // Zeit bis zum Ausschalten des Moduls, wenn die Lampe abgeschaltet wurde
 
 // Zeitstempel
 unsigned long lastTurnOnSignal = 0;
@@ -46,10 +46,16 @@ char replyStateOn[]   = "LSON"; // Antwort: Die Lampe ist eingeschaltet
 char replyStateOff[]  = "LSOF"; // Antwort: Die Lampe ist ausgeschaltet
 
 // pins
-int pinLedGreen    = D1; // Grünes LED
-int pinLedRed   = D2; // Rotes LED
-int pinLedBlue = D3; // Blaues LED
-int pinBtn = D0; // Button zum ein-/ausschalten
+int pinLedGreen    = 14; // Grünes LED
+int pinLedRed   = 27; // Rotes LED
+int pinLedBlue = 26; // Blaues LED
+int pinBtn = 12; // Button zum ein-/ausschalten
+
+int funkModuleStateA = 22; // Status des Funkmoduls
+int funkModuleStateB = 23; // Status des Funkmoduls
+
+// Buffer
+char buf[5] = {'\0','\0','\0','\0','\0'};
 
 
 void setup() {
@@ -58,8 +64,14 @@ void setup() {
   pinMode(pinLedRed, OUTPUT);
   pinMode(pinLedBlue, OUTPUT);
   pinMode(pinBtn, INPUT);
-  Serial.begin(9600);
+  pinMode(funkModuleStateA, OUTPUT);
+  pinMode(funkModuleStateB, OUTPUT);
+  Serial2.begin(9600);
   ledTest(0);
+
+  // Funkmodul einschalten
+  digitalWrite(funkModuleStateA, LOW);
+  digitalWrite(funkModuleStateB, LOW);
 }
 
 void loop() {
@@ -81,11 +93,16 @@ void loop() {
   // Serielle Daten lesen
   // ********************************
   
-  while (Serial.available() >= 4) {
-    char buf[5];
-    Serial.readBytes(buf, 4);
-    buf[4] = '\0';
+  // alle seriellen Daten lesen und prüfen
+  if (Serial2.available() > 0) {
+
+    // Array nachrutschen
+    buf[0] = buf[1];
+    buf[1] = buf[2];
+    buf[2] = buf[3];    
+    buf[3] = Serial2.read();
     
+    // Serial.print(buf);
     // Lampe ein
     if (strcmp(buf, replyStateOn) == 0) {
       state = 2;
@@ -104,7 +121,7 @@ void loop() {
   // einschalten
   if (state == 1) {
     if (lastTurnOnSignal == 0 || (lastTurnOnSignal + pushInterval) < millis()) {
-      Serial.print(cmdLampSetOn);
+      Serial2.print(cmdLampSetOn);
       lastTurnOnSignal = millis();
       lastRequStateSignal = millis();
       lastTurnOffSignal = 0;
@@ -113,7 +130,7 @@ void loop() {
   // ausschalten
   } else if (state == 3) {
     if (lastTurnOffSignal == 0 || (lastTurnOffSignal + pushInterval) < millis()) {
-      Serial.print(cmdLampSetOff);
+      Serial2.print(cmdLampSetOff);
       lastTurnOffSignal = millis();
       lastRequStateSignal = millis();
       lastTurnOnSignal = 0;
@@ -122,7 +139,7 @@ void loop() {
   // unbekannt, Ein- und ausgeschaltet: Status abfragen
   } else if (state == 2 || state == 4) {
     if (lastRequStateSignal == 0 || (lastRequStateSignal + statusInterval) < millis()) {
-      Serial.print(cmdGetLampState);
+      Serial2.print(cmdGetLampState);
       lastRequStateSignal = millis();
     }
   }
